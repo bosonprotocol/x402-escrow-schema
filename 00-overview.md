@@ -8,7 +8,7 @@ The `escrow` scheme is a first-class x402 payment scheme that replaces the trust
 
 The server signs a fresh `OfferCommitment` for each incoming request — pricing is computed at request time, not pre-registered on-chain. This means prices can reflect the specific session, the requested resource, the buyer's identity, or real-time conditions. No per-offer on-chain setup is required before the first request arrives.
 
-The facilitator is optional. The buyer can submit any action — commit, release, dispute, escalate — directly on-chain at any time. A server that goes offline or a facilitator that stops responding cannot strand the buyer: every server response carries a `nextActions` envelope listing every channel through which each legal action can be invoked, including a direct `onchain` fallback.
+The facilitator is optional. The buyer is never stranded: if a server goes offline or a facilitator stops responding, every non-terminal state still exposes at least one buyer-reachable direct `onchain` path via `nextActions`. Each server response carries a `nextActions` envelope listing the available channels for legal next steps, including that required direct `onchain` route.
 
 The scheme is a **backward-compatible addition** to x402. Servers add an `escrow` entry to their `accepts[]` array; clients that understand the `escrow` scheme handle it; clients that don't fail cleanly with a structured `UnsupportedSchemeError` — never an accidental settle.
 
