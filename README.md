@@ -90,7 +90,7 @@ A server may simultaneously advertise an `exact` and an `escrow` accept entry, l
 | 00 | [00-overview.md](./00-overview.md) | detailed |
 | 01 | [01-escrow-scheme.md](./01-escrow-scheme.md) | detailed — wire format source of truth |
 | 02 | [02-flows.md](./02-flows.md) | detailed — sequence diagrams |
-| 03 | [03-delivery-transports.md](./03-delivery-transports.md) | detailed — pluggable delivery |
+| 03 | [03-fulfillment-channels.md](./03-fulfillment-channels.md) | detailed — pluggable fulfillment |
 | 04 | [04-state-machine-and-next-actions.md](./04-state-machine-and-next-actions.md) | detailed — self-describing responses |
 
 ---
