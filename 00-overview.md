@@ -6,7 +6,7 @@
 
 The `escrow` scheme is a first-class x402 payment scheme that replaces the trusted-server payment model of `exact` with **non-custodial on-chain escrow**. Funds enter an escrow contract at commit time; they release to the seller only after the buyer signals delivery (or the dispute window expires); a registered third-party dispute resolver can split funds and penalize a non-delivering seller.
 
-The server signs a fresh `OfferCommitment` for each incoming request — pricing is computed at request time, not pre-registered on-chain. This means prices can reflect the specific session, the requested resource, the buyer's identity, or real-time conditions. No per-offer on-chain setup is required before the first request arrives.
+The server signs an `OfferCommitment` and returns it in the 402 response — no per-offer on-chain setup is required before the first request arrives. Sellers may pre-create offers with a fixed price, or build the offer on demand per request: because the commitment is signed off-chain at HTTP time, the price (and any other offer terms) can reflect the specific session, the requested resource, the buyer's identity, or real-time conditions. Both patterns are valid.
 
 The facilitator is optional. The buyer is never stranded: if a server goes offline or a facilitator stops responding, every non-terminal state still exposes at least one buyer-reachable direct `onchain` path via `nextActions`. Each server response carries a `nextActions` envelope listing the available channels for legal next steps, including that required direct `onchain` route.
 

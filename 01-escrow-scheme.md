@@ -93,7 +93,7 @@ The fundamental security property this achieves: **a non-escrow party that recei
 | `scheme` | yes | Must be `"escrow"`. |
 | `network` | yes | CAIP-2 (`eip155:<chainId>`). EVM only for v1. |
 | `asset` | yes | ERC-20 token contract address. |
-| `amount` | yes | Atomic units, decimal string. The server computes and signs this value fresh for each request — it is not pre-registered on-chain. This enables session-specific pricing: the seller can quote an amount that reflects the current request's scope, the buyer's identity, or real-time market conditions. |
+| `amount` | yes | Atomic units, decimal string. Sellers may use a fixed pre-determined price (the same value across all requests) or compute it on demand per request — because the `OfferCommitment` is signed off-chain at HTTP time, no on-chain setup is required either way. Session-specific amounts (reflecting the request scope, buyer identity, or real-time conditions) are equally valid. |
 | `escrowAddress` | yes | On-chain escrow contract. The custodian. |
 | `recipientId` | yes | Routing-only. May be a numeric seller ID, a DID, or a wallet address. |
 | `maxTimeoutSeconds` | yes | Upper bound for `validBefore` in token-auth signatures. |
