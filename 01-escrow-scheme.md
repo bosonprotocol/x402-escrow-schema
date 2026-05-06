@@ -43,7 +43,12 @@ The fundamental security property this achieves: **a non-escrow party that recei
       // EVM token-transfer authorization strategies the escrow contract accepts for this token
       "tokenAuthStrategies": ["none", "erc3009", "permit", "permit2"],
 
-      "fulfillment": {                                        // see 03-fulfillment-channels.md
+      // fulfillment — see 03-fulfillment-channels.md
+      // required:true means the buyer MUST pick a channel from options[].
+      // inline is listed here, so the buyer may choose same-response delivery;
+      // the other options let async buyers (email/xmtp/webhook) receive out-of-band.
+      // If only inline delivery is offered, omit this field (or set required:false).
+      "fulfillment": {
         "required": true,
         "options": [
           { "id": "inline",   "schema": null },
@@ -96,7 +101,7 @@ The fundamental security property this achieves: **a non-escrow party that recei
 | `offer.sellerSig` | yes | EIP-712 signature over `commitment` under the escrow contract's domain. Validated on-chain by the escrow contract. |
 | `offer.creator` | yes | Address whose key signed `sellerSig`. |
 | `tokenAuthStrategies` | yes | Subset of `["none", "erc3009", "permit", "permit2"]`. The token-transfer authorization strategies the escrow contract accepts for this asset. `none` requires the buyer to pre-approve the escrow contract. |
-| `fulfillment` | optional | Absent or `{required: false}` if the resource is returned inline. |
+| `fulfillment` | optional | Three forms: **(1) Absent or `{required: false}`** — resource always returned inline; no buyer input needed. **(2) `{required: true, options: [...]}`** — buyer must pick a channel. Include `inline` in `options[]` to allow same-response delivery alongside out-of-band options; omit `inline` if the resource is never returned in the HTTP body. |
 | `actions` | yes | Initial `nextActions` envelope. Always lists at least one of `<impl>-commitOnly` / `<impl>-commitAndRelease`. |
 
 ### Action-id namespacing
