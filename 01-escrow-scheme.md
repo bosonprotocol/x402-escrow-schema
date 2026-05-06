@@ -13,7 +13,7 @@ A first-class scheme `"escrow"` removes the hazard entirely:
 - Non-escrow facilitators see an unfamiliar scheme value and reject with a structured error. **Default behaviour is fail-safe.**
 - The buyer's headline signature is a meta-transaction bound to the escrow contract's EIP-712 domain, not reusable elsewhere.
 - The token-authorization signature, when present, is the buyer's authorization for *this exact spend* of *this exact token*; if a non-escrow party tried to settle it, they'd just get the authorized spend — not an attack vector.
-- The wire format is free to carry escrow-shaped data (OfferCommitment, sellerSig, recipientId, delivery options, nextActions) at the top level rather than buried in a generic `info` blob.
+- The wire format is free to carry escrow-shaped data (OfferCommitment, sellerSig, recipientId, fulfillment options, nextActions) at the top level rather than buried in a generic `info` blob.
 
 The fundamental security property this achieves: **a non-escrow party that receives an escrow `X-PAYMENT` payload can do exactly what the buyer authorized — nothing more.** There is no way to accidentally settle using an escrow payload through an `exact` facilitator, and there is no signature cross-contamination between schemes.
 
@@ -43,13 +43,18 @@ The fundamental security property this achieves: **a non-escrow party that recei
       // EVM token-transfer authorization strategies the escrow contract accepts for this token
       "tokenAuthStrategies": ["none", "erc3009", "permit", "permit2"],
 
-      "delivery": {                                           // see 03-delivery-transports.md
+      // fulfillment — see 03-fulfillment-channels.md
+      // required:true means the buyer MUST pick a channel from options[].
+      // inline is listed here, so the buyer may choose same-response delivery;
+      // the other options let async buyers (email/xmtp/webhook) receive out-of-band.
+      // If only inline delivery is offered, omit this field (or set required:false).
+      "fulfillment": {
         "required": true,
         "options": [
-          { "id": "atomic-http", "schema": null },
-          { "id": "email",       "schema": { "type": "object", "required": ["email"] } },
-          { "id": "xmtp",        "schema": { "type": "object", "required": ["xmtpAddress"] } },
-          { "id": "webhook",     "schema": { "type": "object", "required": ["url", "publicKey"] } }
+          { "id": "inline",   "schema": null },
+          { "id": "email",    "schema": { "type": "object", "required": ["email"] } },
+          { "id": "xmtp",     "schema": { "type": "object", "required": ["xmtpAddress"] } },
+          { "id": "webhook",  "schema": { "type": "object", "required": ["url", "publicKey"] } }
         ]
       },
 
@@ -96,7 +101,7 @@ The fundamental security property this achieves: **a non-escrow party that recei
 | `offer.sellerSig` | yes | EIP-712 signature over `commitment` under the escrow contract's domain. Validated on-chain by the escrow contract. |
 | `offer.creator` | yes | Address whose key signed `sellerSig`. |
 | `tokenAuthStrategies` | yes | Subset of `["none", "erc3009", "permit", "permit2"]`. The token-transfer authorization strategies the escrow contract accepts for this asset. `none` requires the buyer to pre-approve the escrow contract. |
-| `delivery` | optional | Absent or `{required: false}` if the resource is fully atomic. |
+| `fulfillment` | optional | Three forms: **(1) Absent or `{required: false}`** — resource always returned inline; no buyer input needed. **(2) `{required: true, options: [...]}`** — buyer must pick a channel. Include `inline` in `options[]` to allow same-response delivery alongside out-of-band options; omit `inline` if the resource is never returned in the HTTP body. |
 | `actions` | yes | Initial `nextActions` envelope. Always lists at least one of `<impl>-commitOnly` / `<impl>-commitAndRelease`. |
 
 ### Action-id namespacing
@@ -175,7 +180,7 @@ The header value is base64(JSON):
     // }
   },
 
-  "delivery": {
+  "fulfillment": {
     "option": "email",
     "data":   { "email": "buyer@example.com" }
   }
@@ -192,8 +197,8 @@ The header value is base64(JSON):
 | `payload.buyer` | yes | Buyer wallet (recovered from sigs by the contract; included for routing). |
 | `payload.metaTx` | yes | Escrow meta-tx authorising execution of `<action>` on behalf of `buyer`. EIP-712 signed under the **escrow contract** domain. Implementation-defined type, but the domain binding is normative. |
 | `payload.tokenAuth` | iff `tokenAuthStrategy ≠ "none"` | Token-transfer authorization for *this exact spend*. The facilitator passes it to the escrow contract's meta-tx entry-point as a queued authorization consumed during fund transfer. |
-| `delivery.option` | iff requirements `delivery.required = true` | Must be one of `delivery.options[].id`. |
-| `delivery.data` | per the option's schema | Validated against `delivery.options[i].schema`. |
+| `fulfillment.option` | iff requirements `fulfillment.required = true` | Must be one of `fulfillment.options[].id`. |
+| `fulfillment.data` | per the option's schema | Validated against `fulfillment.options[i].schema`. |
 
 ## 4. Signatures
 
@@ -241,7 +246,7 @@ For `erc3009`, `permit`, and `permit2`: `to` / `spender` MUST equal the **escrow
 
 ### 4.4 No separate release signature for commit-and-release
 
-For `action = <impl>-commitAndRelease`, the release step happens atomically inside the escrow contract's commit-and-release entry-point. The committer is `_msgSender()` of the meta-tx, so the meta-tx signature in §4.2 already authorises the release. **No additional buyer signature is needed.** Note: this is independent of delivery timing — the resource may still be delivered later via the negotiated delivery transport.
+For `action = <impl>-commitAndRelease`, the release step happens atomically inside the escrow contract's commit-and-release entry-point. The committer is `_msgSender()` of the meta-tx, so the meta-tx signature in §4.2 already authorises the release. **No additional buyer signature is needed.** Note: this is independent of fulfillment timing — the resource may still be fulfilled later via the negotiated fulfillment channel.
 
 ## 5. Validation rules (server side, before forwarding to the facilitator)
 
@@ -257,7 +262,7 @@ For `action = <impl>-commitAndRelease`, the release step happens atomically insi
 10. For `tokenAuthStrategy = "permit"`: `tokenAuth.data.value === requirements.amount`, `tokenAuth.data.spender === requirements.escrowAddress`, `tokenAuth.data.deadline − now ≤ requirements.maxTimeoutSeconds`.
 11. For `tokenAuthStrategy = "permit2"`: `tokenAuth.data.permitted.amount === requirements.amount`, `tokenAuth.data.permitted.token === requirements.asset`, `tokenAuth.data.spender === requirements.escrowAddress`, `tokenAuth.data.deadline − now ≤ requirements.maxTimeoutSeconds`.
 12. For `tokenAuthStrategy = "none"`: server SHOULD pre-flight `IERC20.allowance(buyer, escrowContract) ≥ amount` and reject early on insufficient allowance.
-13. If `requirements.delivery.required`, `payload.delivery.option ∈ requirements.delivery.options[].id` and `payload.delivery.data` validates against the chosen option's `schema`.
+13. If `requirements.fulfillment.required`, `payload.fulfillment.option ∈ requirements.fulfillment.options[].id` and `payload.fulfillment.data` validates against the chosen option's `schema`.
 
 A failure on any rule returns `400` with a structured `{ code, field, expected, got }` body. The server does **not** consult the facilitator until rules 1–13 pass.
 

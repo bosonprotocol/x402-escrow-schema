@@ -18,9 +18,9 @@ sequenceDiagram
 
     C->>S: GET /resource
     S->>S: Sign OfferCommitment off-chain (seller's key)
-    S-->>C: 402 PaymentRequirements<br/>(scheme=escrow, OfferCommitment + sellerSig,<br/>tokenAuthStrategies, delivery options, nextActions)
+    S-->>C: 402 PaymentRequirements<br/>(scheme=escrow, OfferCommitment + sellerSig,<br/>tokenAuthStrategies, fulfillment options, nextActions)
 
-    Note over C: Buyer chooses commit action,<br/>token-auth strategy, and delivery option
+    Note over C: Buyer chooses commit action,<br/>token-auth strategy, and fulfillment option
 
     C->>C: Sign meta-tx authorising commit (escrow contract domain)
     C->>C: Sign token-transfer authorization<br/>— omitted when strategy="none"
@@ -38,7 +38,7 @@ sequenceDiagram
     S->>S: Query escrow contract — verify state=COMMITTED,<br/>seller=self, asset and amount match requirements
     S-->>C: 200 OK<br/>X-PAYMENT-RESPONSE: { exchangeId, proofOfCommitment, txHash }<br/>nextActions: [<impl>-release, <impl>-openDispute, <impl>-cancel, ...]
 
-    Note over C,E: Delivery proceeds via the negotiated transport (atomic-http, email, xmtp, ...)<br/>Subsequent state transitions are driven by nextActions.
+    Note over C,E: Fulfillment proceeds via the negotiated channel (inline, email, xmtp, ...)<br/>Subsequent state transitions are driven by nextActions.
 ```
 
 Notes:
@@ -46,7 +46,7 @@ Notes:
 - **Proof of commitment** is implementation-defined. It may be an NFT voucher (tradable on secondary markets before redemption), a plain exchange ID, or any on-chain record that proves the buyer's committed stake. The client MUST persist it for subsequent actions.
 - The facilitator call is the escrow contract's meta-tx entry-point. The inner commit function locks funds atomically using the queued token-transfer authorization.
 - All subsequent actions (delivery confirmation, fund release, dispute) use the `nextActions` envelope. The buyer can invoke any action through any advertised channel — server, facilitator, on-chain direct, MCP, or XMTP — without depending on the server remaining available.
-- Whether the resource is delivered immediately (in the same HTTP 200 body) or asynchronously (via email, XMTP, webhook, etc.) is governed by the negotiated `delivery.option`, not by this flow. The on-chain commit and the delivery are independent dimensions.
+- Whether the resource is fulfilled inline (in the same HTTP 200 body) or asynchronously (via email, XMTP, webhook, etc.) is governed by the negotiated `fulfillment.option`, not by this flow. The on-chain commit and fulfillment are independent dimensions.
 
 ## Flow B — Dispute and resolution
 

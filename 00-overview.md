@@ -44,14 +44,14 @@ Action IDs carry an implementation-defined prefix (e.g. `boson-`, `coinbase-`) t
 flowchart LR
     subgraph Client side
       App[App / Agent] --> CL[("x402-escrow-client<br/>(+axios/fetch)")]
-      CL --> DEL[("x402-escrow-delivery")]
+      CL --> DEL[("x402-escrow-fulfillment")]
       CL --> ACT[("x402-escrow-actions")]
       AGT[("x402-escrow-agent")] -.MCP.-> CL
     end
 
     subgraph Server side
       Resource[Resource server] --> SR[("x402-escrow-server<br/>(+express/hono/next)")]
-      SR --> DEL2[("x402-escrow-delivery")]
+      SR --> DEL2[("x402-escrow-fulfillment")]
       SR --> ACT2[("x402-escrow-actions")]
     end
 
@@ -88,10 +88,10 @@ The logical package roles below are implementation-agnostic. Reference implement
 |---|---|
 | `x402-escrow-core` | `escrow` scheme JSON schemas + TypeScript types; EIP-712 helpers for OfferCommitment, meta-tx envelope, and the four EVM token-auth strategies (ERC-3009, EIP-2612 Permit, Permit2, plain approve); exchange state machine model. |
 | `x402-escrow-evm` | EVM-specific calldata builders for the commit-only and commit-and-release actions, and the meta-tx envelope that carries them. |
-| `x402-escrow-server` | Framework-agnostic resource server. 402 builder, OfferCommitment signer (called per-request for dynamic pricing), delivery negotiator, `nextActions` emitter, post-commit endpoint set. Adapter sub-packages for popular frameworks. |
-| `x402-escrow-client` | Framework-agnostic client. Interceptor that parses the 402, picks a delivery option and a token-auth strategy, signs the meta-tx + token authorization, retries, then drives post-commit actions through whichever channel is preferred. |
+| `x402-escrow-server` | Framework-agnostic resource server. 402 builder, OfferCommitment signer (called per-request for dynamic pricing), fulfillment negotiator, `nextActions` emitter, post-commit endpoint set. Adapter sub-packages for popular frameworks. |
+| `x402-escrow-client` | Framework-agnostic client. Interceptor that parses the 402, picks a fulfillment option and a token-auth strategy, signs the meta-tx + token authorization, retries, then drives post-commit actions through whichever channel is preferred. |
 | `x402-escrow-facilitator` | Reference verify + settle service. Submits the buyer's meta-tx to the escrow contract and pays gas. Stateless w.r.t. funds — never custodies tokens. |
-| `x402-escrow-delivery` | Pluggable `DeliveryTransport` interface + atomic / email / XMTP / webhook / IPFS-pointer implementations. |
+| `x402-escrow-fulfillment` | Pluggable `FulfillmentChannel` interface + inline / email / XMTP / webhook / IPFS-pointer implementations. |
 | `x402-escrow-actions` | Exchange state machine + channel registry. Powers the `nextActions` envelope on every server response. Implementation-specific action tables plug in here. |
 | `x402-escrow-agent` | Thin glue layer for AI-agent clients. Bridges to MCP tooling and lets agents pick channel (server / facilitator / on-chain / MCP) per action. |
 
@@ -104,5 +104,5 @@ The logical package roles below are implementation-agnostic. Reference implement
 | 00 | [overview.md](./00-overview.md) | detailed (this file) |
 | 01 | [escrow-scheme.md](./01-escrow-scheme.md) | detailed |
 | 02 | [flows.md](./02-flows.md) | detailed |
-| 03 | [delivery-transports.md](./03-delivery-transports.md) | detailed |
+| 03 | [fulfillment-channels.md](./03-fulfillment-channels.md) | detailed |
 | 04 | [state-machine-and-next-actions.md](./04-state-machine-and-next-actions.md) | detailed |
