@@ -2,7 +2,7 @@
 
 > **Status:** detailed spec (v0.1). Defines how the protocol stays self-describing across responses and how the buyer is never locked into the seller's HTTP server.
 
-## The core problem: escrow implementations have different state machines
+## Self-describing state machines: one client, any escrow lifecycle
 
 An escrow contract is not just "locked funds + one release". Different implementations encode very different lifecycle models:
 
@@ -14,6 +14,8 @@ An escrow contract is not just "locked funds + one release". Different implement
 If client SDKs hard-code a specific state machine, they break the moment they encounter a different escrow implementation. A client built for a simple two-party escrow will not know about `REDEEMED` states; a client built for Boson will not know how to drive a simpler escrow.
 
 **The `escrow` scheme solves this by making the state machine self-describing.** The client never needs to know the implementation's state machine in advance. Instead, every server response tells the client exactly what it can do next — and how to do it across multiple fallback channels.
+
+The `nextActions` envelope is the core enabling mechanism that makes this possible. A single generic client library can drive any conforming escrow implementation — a simple two-state contract or a full dispute-capable voucher lifecycle — without knowing the implementation in advance. New implementations with richer lifecycle models do not require client SDK updates; they emit richer `nextActions` and existing clients follow. This is what allows the `escrow` scheme to serve both simple API micropayment use cases and complex physical-goods commerce within a single wire format.
 
 ## Why every response carries `nextActions`
 
@@ -154,6 +156,8 @@ A **channel** is a transport for invoking an action. The standard registry:
 The `escrow` scheme does not prescribe which states or actions an implementation must have. It does require one invariant: **for every non-terminal state, at least one buyer-reachable `onchain` channel MUST exist in `nextActions`**.
 
 This means the buyer can always advance the exchange without the seller's cooperation. A server that withholds endpoints, returns garbage `nextActions`, or goes offline does not strand the buyer — the client falls through to the `onchain` channel using `onchainHints`.
+
+This is a stronger guarantee than pure authorization-based approaches, where the buyer's only fallback is waiting for an authorization timeout to expire before funds become reclaimable. In the `escrow` scheme, the buyer can take affirmative action — open a dispute, cancel, escalate to a resolver — at any point during the exchange, without waiting and without anyone's cooperation.
 
 ## Server-side derivation
 
