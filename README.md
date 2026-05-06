@@ -22,9 +22,9 @@ The `escrow` scheme closes all four gaps.
 
 ## Core guarantee: the buyer never needs to trust anyone
 
-The facilitator is optional — the buyer can submit any action directly on-chain at any time. A server that goes offline, a facilitator that stops responding, or a seller that refuses to cooperate cannot strand the buyer. The escrow contract enforces all outcomes.
+The facilitator is optional — the buyer is never stranded because, in every non-terminal state, `nextActions` includes at least one buyer-reachable direct `onchain` action. A server that goes offline, a facilitator that stops responding, or a seller that refuses to cooperate cannot strand the buyer. The escrow contract enforces the available outcomes.
 
-This is a structural improvement over authorization-based approaches (such as `authCapture`), where the buyer's only fallback is waiting for an authorization timeout to expire before `reclaim()` becomes available. In the `escrow` scheme, the buyer can take affirmative action — open a dispute, cancel, escalate — without waiting and without anyone's cooperation.
+This is a structural improvement over authorization-based approaches (such as `authCapture`), where the buyer's only fallback is waiting for an authorization timeout to expire before `reclaim()` becomes available. In the `escrow` scheme, the buyer always has at least one direct on-chain fallback path in non-terminal states, even though some other actions may require a different channel or additional parties' signatures.
 
 ---
 
