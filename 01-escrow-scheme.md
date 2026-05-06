@@ -15,6 +15,8 @@ A first-class scheme `"escrow"` removes the hazard entirely:
 - The token-authorization signature, when present, is the buyer's authorization for *this exact spend* of *this exact token*; if a non-escrow party tried to settle it, they'd just get the authorized spend — not an attack vector.
 - The wire format is free to carry escrow-shaped data (OfferCommitment, sellerSig, recipientId, delivery options, nextActions) at the top level rather than buried in a generic `info` blob.
 
+The fundamental security property this achieves: **a non-escrow party that receives an escrow `X-PAYMENT` payload can do exactly what the buyer authorized — nothing more.** There is no way to accidentally settle using an escrow payload through an `exact` facilitator, and there is no signature cross-contamination between schemes.
+
 ## 2. PaymentRequirements (server → client, in 402 body)
 
 ```jsonc
@@ -86,7 +88,7 @@ A first-class scheme `"escrow"` removes the hazard entirely:
 | `scheme` | yes | Must be `"escrow"`. |
 | `network` | yes | CAIP-2 (`eip155:<chainId>`). EVM only for v1. |
 | `asset` | yes | ERC-20 token contract address. |
-| `amount` | yes | Atomic units, decimal string. |
+| `amount` | yes | Atomic units, decimal string. The server computes and signs this value fresh for each request — it is not pre-registered on-chain. This enables session-specific pricing: the seller can quote an amount that reflects the current request's scope, the buyer's identity, or real-time market conditions. |
 | `escrowAddress` | yes | On-chain escrow contract. The custodian. |
 | `recipientId` | yes | Routing-only. May be a numeric seller ID, a DID, or a wallet address. |
 | `maxTimeoutSeconds` | yes | Upper bound for `validBefore` in token-auth signatures. |
@@ -221,6 +223,8 @@ type:    <implementation-defined MetaTransaction type>
 ```
 
 The escrow contract's existing meta-tx replay protection applies (`usedNonce[from][nonce]` or equivalent).
+
+This nonce provides **authorization replay protection at the action level**: the same signed meta-tx cannot be submitted twice, and cannot be reused against a different escrow contract (the EIP-712 domain binds the signature to `verifyingContract`). Combined with the token-auth nonce enforced independently by the token contract (or Permit2), this gives two independent on-chain replay barriers — one at the action level, one at the funds-transfer level.
 
 ### 4.3 Buyer — token-transfer authorization
 
