@@ -99,7 +99,7 @@ A server may simultaneously advertise an `exact` and an `escrow` accept entry, l
 
 | Implementation | Repo | Notes |
 |---|---|---|
-| Boson Protocol (`x402b`) | [bosonprotocol/x402b](https://github.com/bosonprotocol/x402b) | Reference implementation using Boson Protocol escrow |
+| Boson Protocol (`x402B`) | [bosonprotocol/x402B](https://github.com/bosonprotocol/x402B) | Reference implementation using Boson Protocol escrow |
 
 Implementors are encouraged to open a PR adding their entry to this table.
 
