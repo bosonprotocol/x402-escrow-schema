@@ -2,9 +2,9 @@
 
 > **Status:** detailed spec (v0.1). Sequence diagrams are the canonical source for the implementation.
 
-## Flow A — Deferred commit (commit now, release later)
+## Flow A — Commit and escrow
 
-The buyer commits to a freshly-created offer, takes a voucher, and releases separately when ready. Use this when the buyer wants to inspect the offer state on-chain before releasing, or when the resource isn't ready at commit time (physical goods, asynchronous services).
+The buyer commits to a signed offer; funds are locked in the escrow contract; the escrow contract issues a **proof of commitment** (an implementation-defined on-chain record — e.g. a receipt hash, an NFT voucher, an exchange ID). The server verifies the on-chain state and returns the resource or a delivery receipt. All subsequent steps — delivery confirmation, fund release, and dispute resolution — are driven by the `nextActions` envelope returned with every response.
 
 ```mermaid
 sequenceDiagram
@@ -14,130 +14,83 @@ sequenceDiagram
     participant F as Facilitator
     participant E as Escrow Contract
 
-    Note over S: One-time: register seller identity on-chain. No per-offer on-chain call needed.
+    Note over S: One-time setup: register seller identity on-chain.<br/>No per-offer on-chain call needed — offers are signed off-chain.
 
     C->>S: GET /resource
     S->>S: Sign OfferCommitment off-chain (seller's key)
-    S-->>C: 402 PaymentRequirements<br/>(escrow scheme, OfferCommitment + sellerSig, tokenAuthStrategies, delivery options, nextActions)
+    S-->>C: 402 PaymentRequirements<br/>(scheme=escrow, OfferCommitment + sellerSig,<br/>tokenAuthStrategies, delivery options, nextActions)
 
-    Note over C: Buyer chooses action="<impl>-commitOnly",<br/>tokenAuthStrategy (none / erc3009 / permit / permit2),<br/>delivery option
+    Note over C: Buyer chooses commit action,<br/>token-auth strategy, and delivery option
 
-    C->>C: Sign meta-tx for commit-only (escrow contract domain)
-    C->>C: Sign token-transfer authorization (per chosen strategy)<br/>— skipped when tokenAuthStrategy="none"
+    C->>C: Sign meta-tx authorising commit (escrow contract domain)
+    C->>C: Sign token-transfer authorization<br/>— omitted when strategy="none"
 
-    C->>S: GET /resource + X-PAYMENT (action=<impl>-commitOnly)
+    C->>S: GET /resource + X-PAYMENT (commit action)
     S->>S: Validate payload (§5 of escrow-scheme.md)
     S->>F: POST /verify, then /settle
 
-    F->>E: escrow meta-tx entry-point(<br/>metaTxParams, tokenTransferAuthorizations[], sig)
-    Note over E: Verify meta-tx sig → queue token-auth →<br/>commit (lock funds in escrow) →<br/>emit CommitEvent, state = COMMITTED
-    E-->>F: exchangeId, txHash
-    F-->>S: exchangeId, txHash
+    F->>E: submit meta-tx (metaTxParams, tokenAuthorization[], sig)
+    Note over E: Verify meta-tx sig<br/>→ transfer funds in (consume token-auth)<br/>→ lock funds in escrow<br/>→ emit CommitEvent, state = COMMITTED<br/>→ issue proof of commitment
 
-    S->>S: query escrow contract — verify state=COMMITTED, seller=self, amount=expected
-    S-->>C: 200 OK<br/>X-PAYMENT-RESPONSE: { exchangeId, txHash }<br/>nextActions: [<impl>-release, <impl>-raiseDispute, <impl>-cancel]
+    E-->>F: proofOfCommitment, exchangeId, txHash
+    F-->>S: proofOfCommitment, exchangeId, txHash
 
-    Note over C: Buyer fulfills delivery details out-of-band (per delivery.option)<br/>or already attached them at commit (atomic-http / email / xmtp / webhook)
+    S->>S: Query escrow contract — verify state=COMMITTED,<br/>seller=self, asset and amount match requirements
+    S-->>C: 200 OK<br/>X-PAYMENT-RESPONSE: { exchangeId, proofOfCommitment, txHash }<br/>nextActions: [<impl>-release, <impl>-openDispute, <impl>-cancel, ...]
 
-    C->>E: release(exchangeId)<br/>(or via server, facilitator, MCP)
-    E-->>C: state = RELEASED
-
-    C->>S: POST /resource/release (optional notify)
-    S-->>C: 200 OK + resource (or pointer)<br/>nextActions: [<impl>-complete, <impl>-raiseDispute]
-
-    C->>E: complete(exchangeId)
-    E-->>E: state = COMPLETED, releaseFunds() to seller
+    Note over C,E: Delivery proceeds via the negotiated transport (atomic-http, email, xmtp, ...)<br/>Subsequent state transitions are driven by nextActions.
 ```
 
 Notes:
 
-- The single facilitator call is the escrow contract's meta-tx entry-point, which queues the token-auth into transient storage; the underlying commit function consumes the queued auth during fund transfer.
-- The buyer can switch to releasing via the server, the facilitator, MCP, or directly on-chain — `nextActions` lists each available channel.
+- **Proof of commitment** is implementation-defined. It may be an NFT voucher (tradable on secondary markets before redemption), a plain exchange ID, or any on-chain record that proves the buyer's committed stake. The client MUST persist it for subsequent actions.
+- The facilitator call is the escrow contract's meta-tx entry-point. The inner commit function locks funds atomically using the queued token-transfer authorization.
+- All subsequent actions (delivery confirmation, fund release, dispute) use the `nextActions` envelope. The buyer can invoke any action through any advertised channel — server, facilitator, on-chain direct, MCP, or XMTP — without depending on the server remaining available.
+- Whether the resource is delivered immediately (in the same HTTP 200 body) or asynchronously (via email, XMTP, webhook, etc.) is governed by the negotiated `delivery.option`, not by this flow. The on-chain commit and the delivery are independent dimensions.
 
-## Flow B — Atomic commit-and-release (single transaction)
+## Flow B — Dispute and resolution
 
-The buyer collapses the **commit** and **release** state transitions into a single on-chain transaction. This is purely a choice about *when the on-chain release happens*; it is **independent of when the actual resource is delivered**.
-
-Use Flow B when the buyer wants to assert "consider this released now" up front. Common cases:
-
-- Atomic delivery — the resource is returned in the same HTTP 200 response (e.g. a small JSON payload, a license key, a signed access token).
-- Asynchronous delivery — the resource takes time to produce (e.g. a generated report) but the buyer is happy to release on commit and receive the deliverable later through whichever delivery transport they negotiated. The post-200 dispute window is the buyer's protection if delivery never arrives.
-- Pre-staged delivery — the resource is already available off-chain (IPFS, gated URL) and the release is just the on-chain proof.
-
-The mechanics are identical regardless of delivery timing — the escrow contract's commit-and-release entry-point handles the on-chain side, and the chosen `delivery.option` handles the delivery side.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant C as Client
-    participant S as Resource Server
-    participant F as Facilitator
-    participant E as Escrow Contract
-
-    C->>S: GET /resource
-    S-->>C: 402 PaymentRequirements (action options include "<impl>-commitAndRelease")
-
-    Note over C: Buyer chooses action="<impl>-commitAndRelease"<br/>+ tokenAuthStrategy + delivery option (often "atomic-http")
-
-    C->>C: Sign meta-tx for commitAndRelease (escrow contract domain)
-    C->>C: Sign token-transfer authorization (per chosen strategy)<br/>— skipped when tokenAuthStrategy="none"
-
-    C->>S: GET /resource + X-PAYMENT (action=<impl>-commitAndRelease)
-    S->>F: /verify + /settle
-
-    F->>E: escrow meta-tx entry-point(<br/>metaTxParams, tokenTransferAuthorizations[], sig)
-    Note over E: Verify meta-tx sig → queue token-auth →<br/>commitAndRelease (commit + release in one tx) →<br/>fund transfer consumes queued token-auth → state = RELEASED
-    E-->>F: exchangeId, txHash
-    F-->>S: exchangeId, txHash
-
-    S->>S: Verify exchange.state == RELEASED via escrow contract query
-    S-->>C: 200 OK + resource or pointer/receipt<br/>X-PAYMENT-RESPONSE: { exchangeId, txHash }<br/>nextActions: [<impl>-complete, <impl>-raiseDispute]
-
-    C->>E: complete(exchangeId) (or auto-timeout)
-    E-->>E: state = COMPLETED, releaseFunds()
-```
-
-Notes:
-
-- The commit-and-release entry-point emits CommitEvent and ReleaseEvent in a single tx. The committer (and thus the releaser) is `_msgSender()` of the meta-tx — the buyer recovered from the meta-tx signature — so no extra release signature is needed.
-- Dispute window still applies post-release; see Flow C.
-
-## Flow C — Dispute path
-
-The buyer raises a dispute within the dispute window. Either party can attempt mutual resolution; if unresolved, escalation invokes the registered dispute resolver.
+After the buyer has committed and the delivery window opens, the buyer may open a dispute if delivery fails or is unsatisfactory. The `escrow` scheme requires that every implementation support at least one resolution method reachable by the buyer on-chain, independently of the seller's server. The specific resolution mechanism is implementation-defined.
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant C as Client (buyer)
     participant Sv as Resource Server (seller)
-    participant DR as Dispute Resolver
+    participant R as Resolution Handler
     participant E as Escrow Contract
 
-    Note over C,E: Starting state: RELEASED. Dispute window open.
+    Note over C,E: Starting state: post-commit. Dispute window open.
 
-    C->>E: raiseDispute(exchangeId)<br/>(via server endpoint, facilitator, MCP, or direct)
+    C->>E: openDispute(exchangeId)<br/>(via server, facilitator, on-chain direct, or MCP — see nextActions)
     E-->>E: state = DISPUTED
 
-    alt Mutual resolution
-        Sv->>E: resolveDispute(exchangeId, terms, sellerSig)<br/>(or buyer signs first)
-        C->>E: resolveDispute(exchangeId, terms, buyerSig)
-        E-->>E: state = RESOLVED, releaseFunds() per terms
-    else Escalation
-        C->>E: escalateDispute(exchangeId)
-        E-->>DR: dispute pending decision
-        DR->>E: decideDispute(exchangeId, buyerPercent)
-        E-->>E: state = DECIDED, releaseFunds() per decision (slash bond if applicable)
-    else Timeout (buyer inaction)
-        E-->>E: expireDispute / state = RETRACTED, releaseFunds() to seller
+    alt Mutual agreement
+        Note over C,Sv: Both parties agree on terms off-chain
+        Sv->>E: submitResolution(exchangeId, terms, sellerSig)
+        C->>E: confirmResolution(exchangeId, terms, buyerSig)
+        E-->>E: releaseFunds() per agreed terms → RESOLVED
+    else Third-party resolution
+        Note over C: Buyer (or seller) escalates to a registered resolver
+        C->>E: escalate(exchangeId)
+        E-->>R: dispute queued for resolution
+        R->>E: resolve(exchangeId, allocation)
+        E-->>E: releaseFunds() per resolution → DECIDED
+    else Timeout / auto-release
+        Note over E: Dispute window expires without buyer action
+        E-->>E: releaseFunds() to seller → COMPLETED / RETRACTED
     end
 ```
 
-The buyer reaches the dispute primitives through whichever channel `nextActions.fallback` advertises. The server's convenience endpoint is one option; the others are facilitator, on-chain direct, MCP, XMTP-to-seller. See [04-state-machine-and-next-actions.md](./04-state-machine-and-next-actions.md) for the full channel registry.
+Notes:
 
-## Flow D — Channel fallback (when the server is unreachable)
+- **The resolution mechanism is implementation-defined.** An implementation may support only mutual agreement, only a third-party resolver, or both. It may enforce a seller bond that can be slashed on bad delivery. All that this schema requires is that a resolution path exists, that it is reachable on-chain without the seller's cooperation, and that it is described in the `nextActions` envelope.
+- The buyer MUST be able to open a dispute directly on-chain (via `onchain` channel) without needing the seller's server. Censorship resistance is a protocol guarantee.
+- Timeout behaviour (auto-release to the seller when the buyer does nothing within the dispute window) is recommended but implementation-defined.
 
-After the initial 402, every subsequent step has an off-server alternative. Concrete fallback ordering for a "release" action when the server endpoint is offline:
+## Flow C — Channel fallback (when the server is unreachable)
+
+After the initial 402, every subsequent step has an off-server alternative. Concrete fallback ordering for any post-commit action when the server endpoint is offline:
 
 ```mermaid
 sequenceDiagram
@@ -148,16 +101,16 @@ sequenceDiagram
     participant M as MCP
     participant E as Escrow Contract
 
-    C->>Sv: POST /escrow/release (preferred)
+    C->>Sv: POST /escrow/<action> (preferred)
     Sv-->>C: timeout / 5xx
 
-    C->>F: POST /release (next preferred)
+    C->>F: POST /<action> (next preferred)
     F-->>C: timeout / 5xx
 
-    C->>M: tool: release(exchangeId)
+    C->>M: tool: <action>(exchangeId)
     M-->>C: error / unavailable
 
-    C->>E: release(exchangeId) (direct on-chain — always available)
+    C->>E: <action>(exchangeId) (direct on-chain — always available)
     E-->>C: tx confirmed
 ```
 
@@ -167,7 +120,6 @@ Order is set by `nextActions[i].channels[]` in the most recent server response (
 
 | Flow | Server-side verify | Client-side verify |
 |---|---|---|
-| A. Deferred commit | `state === COMMITTED`, `seller === self`, `exchangeToken === asset`, `price === amount` | `txHash` mined, exchange ID matches expected offerCommitment hash |
-| B. Atomic commit-and-release | `state === RELEASED`, all of the above | CommitEvent + ReleaseEvent in one receipt. Delivery may still be asynchronous — the buyer tracks it via the chosen `delivery.option`. |
-| C. Dispute | state transitions match invoked function | event log signatures match the action |
-| D. Fallback | n/a | each channel returns a structured success or moves to the next |
+| A. Commit and escrow | `state === COMMITTED`, `seller === self`, `exchangeToken === asset`, `price === amount` | `txHash` mined; `proofOfCommitment` matches expected OfferCommitment hash |
+| B. Dispute and resolution | state transitions match invoked resolution method | event log entries match the resolution path taken |
+| C. Fallback | n/a | each channel returns a structured success or moves to the next |
