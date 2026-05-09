@@ -54,7 +54,7 @@ The fundamental security property this achieves: **a non-escrow party that recei
           { "id": "inline",   "schema": null },
           { "id": "email",    "schema": { "type": "object", "required": ["email"] } },
           { "id": "xmtp",     "schema": { "type": "object", "required": ["xmtpAddress"] } },
-          { "id": "webhook",  "schema": { "type": "object", "required": ["url", "publicKey"] } }
+          { "id": "webhook",  "schema": { "type": "object", "required": ["url"] } }
         ]
       },
 
